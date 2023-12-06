@@ -1,10 +1,11 @@
+use std::collections::HashSet;
 use std::str::FromStr;
 use std::{io, fs, cmp};
 
 #[derive(Debug, Clone)]
 pub struct Error;
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct Range {
     start: u64,
     length: u64,
@@ -44,20 +45,20 @@ impl RangedLookup {
     }
 
     // Returns tuple of (mutated_range, unprocessed_ranges)
-    fn range_lookup(&self, range: Range) -> (Option<Range>, Vec<Range>) {
+    fn range_lookup(&self, range: Range) -> (Option<Range>, HashSet<Range>) {
         let overlap_start = cmp::max(self.source.start, range.start);
         let overlap_end = cmp::min(self.source.end, range.end);
-        if overlap_end < overlap_start { return (None, vec![range]) }
+        if overlap_end < overlap_start { return (None, HashSet::from([range])) }
         let overlap_length = overlap_end - overlap_start + 1;
 
         let mutated = Some(
             Range::new(overlap_start - self.source.start + self.destination, overlap_length)
         );
-        let mut unprocessed = vec![];
-        if overlap_start > range.start { unprocessed.push(
+        let mut unprocessed = HashSet::new();
+        if overlap_start > range.start { unprocessed.insert(
             Range::new(range.start, overlap_start-range.start)
         );}
-        if overlap_end < range.end { unprocessed.push(
+        if overlap_end < range.end { unprocessed.insert(
             Range::new(overlap_end+1, range.end - overlap_end)
         );}
 
@@ -94,19 +95,20 @@ impl AlmanacSection {
         value // Unmapped values get passed straight through
     }
 
-    fn range_lookup(&self, to_lookup : Range) -> Vec<Range> {
-        let mut mutated_ranges = vec![];
-        let mut remainder = vec![to_lookup];
+    // This should really be a set, since ordering doesn't matter...  But this works.
+    fn range_lookup(&self, to_lookup : Range) -> HashSet<Range> {
+        let mut mutated_ranges: HashSet<Range> = HashSet::new();
+        let mut remainder = HashSet::from([to_lookup]);
         for lookup in &self.lookups {
-            let mut new_remainders = vec![];
+            let mut new_remainders = HashSet::new();
             for range in remainder {
                 let (mutated_range, mut new_remainder) = lookup.range_lookup(range);
-                if let Some(r) = mutated_range { mutated_ranges.push(r); }
-                new_remainders.append(&mut new_remainder);
+                if let Some(r) = mutated_range { mutated_ranges.insert(r); }
+                new_remainders.extend(new_remainder);
             }
             remainder = new_remainders;
         }
-        mutated_ranges.append(&mut remainder);// Unmapped values get passed straight through
+        mutated_ranges.extend(remainder);// Unmapped values get passed straight through
         return mutated_ranges;
     }
 }
@@ -142,12 +144,12 @@ impl Almanac {
         current_value
     }
 
-    fn locations_for_range(&self, range: Range) -> Vec<Range> {
-        let mut ranges = vec![range];
+    fn locations_for_range(&self, range: Range) -> HashSet<Range> {
+        let mut ranges = HashSet::from([range]);
         for section in &self.almanac_sections {
-            let mut next_ranges = vec![];
+            let mut next_ranges = HashSet::new();
             for range in ranges {
-                next_ranges.append(&mut section.range_lookup(range) );
+                next_ranges.extend(section.range_lookup(range) );
             }
             ranges = next_ranges;
         }
@@ -204,19 +206,19 @@ mod tests {
         let lookup : RangedLookup = RangedLookup { destination: 50, source: Range::new(3, 4) };
         let (mutated, leftover) = lookup.range_lookup( Range::new(2, 3) );
         assert_eq!(mutated, Some(Range::new(50, 2)));
-        assert_eq!(leftover, vec![Range::new(2, 1)]);
+        assert_eq!(leftover, HashSet::from([Range::new(2, 1)]));
 
         let (mutated, leftover) = lookup.range_lookup( Range::new(5, 4) );
         assert_eq!(mutated, Some(Range::new(52, 2)));
-        assert_eq!(leftover, vec![Range::new(7, 2)]);
+        assert_eq!(leftover, HashSet::from([Range::new(7, 2)]));
 
         let (mutated, leftover) = lookup.range_lookup( Range::new(5, 1) );
         assert_eq!(mutated, Some(Range::new(52, 1)));
-        assert_eq!(leftover, vec![]);
+        assert_eq!(leftover, HashSet::from([]));
 
         let (mutated, leftover) = lookup.range_lookup( Range::new(1, 10) );
         assert_eq!(mutated, Some(Range::new(50, 4)));
-        assert_eq!(leftover, vec![Range::new(1, 2), Range::new(7, 4)]);
+        assert_eq!(leftover, HashSet::from([Range::new(1, 2), Range::new(7, 4)]));
     }
 
     #[test]
@@ -227,6 +229,6 @@ mod tests {
         ] };
 
         let mutated = section.range_lookup(Range::new(1, 12));
-        assert_eq!(mutated, vec![Range::new(10, 2), Range::new(50, 3), Range::new(1, 2), Range::new(5, 2), Range::new(10, 3)]);
+        assert_eq!(mutated, HashSet::from([Range::new(1, 2), Range::new(5, 2), Range::new(10, 3), Range::new(10, 2), Range::new(50, 3)]));
     }
 }
