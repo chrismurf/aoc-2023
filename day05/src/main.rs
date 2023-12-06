@@ -102,7 +102,7 @@ impl AlmanacSection {
         for lookup in &self.lookups {
             let mut new_remainders = HashSet::new();
             for range in remainder {
-                let (mutated_range, mut new_remainder) = lookup.range_lookup(range);
+                let (mutated_range, new_remainder) = lookup.range_lookup(range);
                 if let Some(r) = mutated_range { mutated_ranges.insert(r); }
                 new_remainders.extend(new_remainder);
             }
